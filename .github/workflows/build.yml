@@ -99,6 +99,10 @@ jobs:
             --hidden-import cairocffi \
             photocd_decoder.py
 
+      - name: Ad-hoc sign the app
+        run: |
+          codesign --force --deep --sign - "dist/Photo CD Player.app"
+
       - name: Create DMG
         run: |
           brew install create-dmg
