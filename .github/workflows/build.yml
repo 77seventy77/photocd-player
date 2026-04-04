@@ -43,12 +43,15 @@ jobs:
             --hidden-import cairocffi `
             photocd_decoder.py
 
-      - name: Upload EXE artifact
+      - name: Zip Windows build
+        run: Compress-Archive -Path "dist/Photo CD Player" -DestinationPath "PhotoCDPlayer-Windows.zip"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PhotoCDPlayer-Windows
-          path: dist/Photo CD Player/
-          retention-days: 30
+          path: PhotoCDPlayer-Windows.zip
+          retention-days: 1
 
   build-macos:
     name: macOS App (ARM64)
@@ -62,8 +65,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          pip install pillow numpy pygame cairosvg pyinstaller
+        run: pip install pillow numpy pygame cairosvg pyinstaller
 
       - name: Convert PNG to ICNS
         run: |
@@ -111,12 +113,12 @@ jobs:
             "dist/Photo CD Player.dmg" \
             "dist/Photo CD Player.app"
 
-      - name: Upload DMG artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PhotoCDPlayer-macOS
           path: dist/Photo CD Player.dmg
-          retention-days: 30
+          retention-days: 1
 
   build-linux:
     name: Linux AppImage
@@ -136,8 +138,7 @@ jobs:
             python3-dev gir1.2-gtk-3.0 libgtk-3-dev fuse
 
       - name: Install Python dependencies
-        run: |
-          pip install pillow numpy pygame cairosvg pyinstaller
+        run: pip install pillow numpy pygame cairosvg pyinstaller
 
       - name: Build with PyInstaller
         run: |
@@ -161,11 +162,9 @@ jobs:
 
       - name: Package as AppImage
         run: |
-          # Download appimagetool
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
           chmod +x appimagetool
 
-          # Create AppDir structure
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
           cp -r "dist/Photo CD Player/"* AppDir/usr/bin/
           cp "App Icon/PhotoCDLogo.png" AppDir/usr/share/icons/hicolor/256x256/apps/photocd-player.png
@@ -192,9 +191,50 @@ jobs:
 
           ARCH=x86_64 ./appimagetool AppDir "PhotoCDPlayer-Linux.AppImage"
 
-      - name: Upload AppImage artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PhotoCDPlayer-Linux
           path: PhotoCDPlayer-Linux.AppImage
-          retention-days: 30
+          retention-days: 1
+
+  release:
+    name: Publish Release
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.00
+          name: Photo CD Player v1.00
+          draft: false
+          prerelease: false
+          make_latest: true
+          body: |
+            ## Photo CD Player v1.00
+
+            Decodes and plays Kodak Photo CD disc images (.cue/.bin).
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | macOS (ARM64) | `Photo CD Player.dmg` |
+            | Windows | `PhotoCDPlayer-Windows.zip` |
+            | Linux | `PhotoCDPlayer-Linux.AppImage` |
+
+            ### Supported formats
+            - Photo CD Master (Base, 4Base, 16Base)
+            - Photo CD Portfolio (Base)
+            - Standalone `.pcd` and `.rgb` files
+          files: |
+            artifacts/PhotoCDPlayer-macOS/Photo CD Player.dmg
+            artifacts/PhotoCDPlayer-Windows/PhotoCDPlayer-Windows.zip
+            artifacts/PhotoCDPlayer-Linux/PhotoCDPlayer-Linux.AppImage
