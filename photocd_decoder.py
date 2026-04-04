@@ -2021,6 +2021,16 @@ if __name__ == "__main__":
                 print(f"  WARNING: Could not load hires decoder: {e}")
 
     root = tk.Tk()
+
+    # Fix HiDPI/Retina scaling for PyInstaller bundles on macOS.
+    # The bundled Tk defaults to 72 DPI; read the actual screen DPI and apply it.
+    if sys.platform == "darwin" and getattr(sys, "frozen", False):
+        try:
+            dpi = root.winfo_fpixels("1i")
+            root.tk.call("tk", "scaling", dpi / 72.0)
+        except Exception:
+            pass
+
     app  = PhotoCDViewer(root, reader, images,
                          audio_player=audio_player,
                          image_timings=None,
