@@ -118,77 +118,83 @@ jobs:
           path: dist/Photo CD Player.dmg
           retention-days: 30
 
-  build-linux-flatpak:
-    name: Linux Flatpak
-    runs-on: ubuntu-latest
+  build-linux:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Flatpak and flatpak-builder
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
+          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev pkg-config \
+            python3-dev gir1.2-gtk-3.0 libgtk-3-dev fuse
 
-      - name: Write Flatpak manifest
+      - name: Install Python dependencies
         run: |
-          cat > com.photocd.player.yml << 'MANIFEST'
-          app-id: com.photocd.player
-          runtime: org.freedesktop.Platform
-          runtime-version: "23.08"
-          sdk: org.freedesktop.Sdk
-          command: photocd-player
-          finish-args:
-            - --share=ipc
-            - --socket=x11
-            - --socket=wayland
-            - --socket=pulseaudio
-            - --filesystem=host
-            - --device=dri
-          modules:
-            - name: python3-deps
-              buildsystem: simple
-              build-commands:
-                - pip3 install --prefix=/app --no-deps pillow numpy pygame cairosvg cssselect2 tinycss2 cairocffi webencodings
-              sources:
-                - type: shell
-                  commands:
-                    - pip3 download --no-deps pillow numpy pygame cairosvg cssselect2 tinycss2 cairocffi webencodings -d /tmp/wheels
-            - name: photocd-player
-              buildsystem: simple
-              build-commands:
-                - install -Dm755 photocd_decoder.py /app/bin/photocd-player
-                - install -Dm644 photocd_fs_reader.py /app/lib/photocd/photocd_fs_reader.py
-                - install -Dm644 photocd_disc_map.py /app/lib/photocd/photocd_disc_map.py
-                - install -Dm644 photocd_hires.py /app/lib/photocd/photocd_hires.py
-                - install -Dm644 photocd_playlist_parse.py /app/lib/photocd/photocd_playlist_parse.py
-                - cp -r assets /app/lib/photocd/assets
-                - install -Dm644 "App Icon/PhotoCDLogo.png" /app/share/icons/hicolor/256x256/apps/com.photocd.player.png
-                - install -Dm644 com.photocd.player.desktop /app/share/applications/com.photocd.player.desktop
-              sources:
-                - type: dir
-                  path: .
-          MANIFEST
+          pip install pillow numpy pygame cairosvg pyinstaller
 
-          cat > com.photocd.player.desktop << 'DESKTOP'
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --windowed --onedir \
+            --name "Photo CD Player" \
+            --add-data "assets:assets" \
+            --add-data "photocd_fs_reader.py:." \
+            --add-data "photocd_disc_map.py:." \
+            --add-data "photocd_hires.py:." \
+            --add-data "photocd_playlist_parse.py:." \
+            --hidden-import PIL \
+            --hidden-import PIL.Image \
+            --hidden-import PIL.ImageTk \
+            --hidden-import numpy \
+            --hidden-import pygame \
+            --hidden-import cairosvg \
+            --hidden-import cssselect2 \
+            --hidden-import tinycss2 \
+            --hidden-import cairocffi \
+            photocd_decoder.py
+
+      - name: Package as AppImage
+        run: |
+          # Download appimagetool
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
+          chmod +x appimagetool
+
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp -r "dist/Photo CD Player/"* AppDir/usr/bin/
+          cp "App Icon/PhotoCDLogo.png" AppDir/usr/share/icons/hicolor/256x256/apps/photocd-player.png
+          cp "App Icon/PhotoCDLogo.png" AppDir/photocd-player.png
+
+          cat > AppDir/usr/share/applications/photocd-player.desktop << 'EOF'
           [Desktop Entry]
           Name=Photo CD Player
           Comment=Play Kodak Photo CD disc images
-          Exec=photocd-player
-          Icon=com.photocd.player
+          Exec=Photo CD Player
+          Icon=photocd-player
           Type=Application
           Categories=Graphics;Viewer;
-          DESKTOP
+          EOF
+          cp AppDir/usr/share/applications/photocd-player.desktop AppDir/photocd-player.desktop
 
-      - name: Build Flatpak
-        run: |
-          flatpak-builder --repo=repo --force-clean build-flatpak com.photocd.player.yml
-          flatpak build-bundle repo PhotoCDPlayer-Linux.flatpak com.photocd.player
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=$(dirname "$SELF")
+          exec "$HERE/usr/bin/Photo CD Player" "$@"
+          EOF
+          chmod +x AppDir/AppRun
 
-      - name: Upload Flatpak artifact
+          ARCH=x86_64 ./appimagetool AppDir "PhotoCDPlayer-Linux.AppImage"
+
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: PhotoCDPlayer-Linux
-          path: PhotoCDPlayer-Linux.flatpak
+          path: PhotoCDPlayer-Linux.AppImage
           retention-days: 30
