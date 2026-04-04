@@ -65,7 +65,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install pillow numpy pygame cairosvg pyinstaller
+        run: |
+          brew install cairo
+          pip install pillow numpy pygame cairosvg pyinstaller
 
       - name: Convert PNG to ICNS
         run: |
@@ -79,6 +81,7 @@ jobs:
 
       - name: Build .app
         run: |
+          CAIRO_LIB=$(brew --prefix cairo)/lib/libcairo.2.dylib
           pyinstaller --noconfirm --windowed --onedir \
             --name "Photo CD Player" \
             --icon "App Icon/PhotoCDLogo.icns" \
@@ -88,6 +91,8 @@ jobs:
             --add-data "photocd_disc_map.py:." \
             --add-data "photocd_hires.py:." \
             --add-data "photocd_playlist_parse.py:." \
+            --add-binary "$CAIRO_LIB:." \
+            --runtime-hook "rthook_cairo.py" \
             --hidden-import PIL \
             --hidden-import PIL.Image \
             --hidden-import PIL.ImageTk \

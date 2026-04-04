@@ -68,7 +68,7 @@ try:
     import cairosvg as _cairosvg
     import io as _io
     _CAIROSVG_OK = True
-except ImportError:
+except (ImportError, OSError):
     _CAIROSVG_OK = False
 
 from photocd_disc_map import map_disc, validate_bin_files
