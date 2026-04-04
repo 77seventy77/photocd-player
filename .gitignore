@@ -1,0 +1,20 @@
+venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec.bak
+
+# Test/extracted files
+*.PCD
+*.RGB
+
+# macOS
+.DS_Store
+
+# User config (machine-specific)
+~/.config/photocd/
+
+# Large reference files
+InfranView reference images/
+Specification References/
