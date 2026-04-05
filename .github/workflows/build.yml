@@ -228,7 +228,9 @@ jobs:
           EOF
           chmod +x photocd-player.sh
 
-          cp "App Icon/PhotoCDLogo.png" com.photocd.Player.png
+          # Flatpak requires icons ≤ 512x512; source is 1024x1024
+          python3 -c "from PIL import Image; Image.open('App Icon/PhotoCDLogo.png').resize((256,256), Image.LANCZOS).save('com.photocd.Player.png')" \
+            || (apt-get update && apt-get install -y imagemagick && convert "App Icon/PhotoCDLogo.png" -resize 256x256 com.photocd.Player.png)
 
           cat > com.photocd.Player.yml <<'EOF'
           app-id: com.photocd.Player
