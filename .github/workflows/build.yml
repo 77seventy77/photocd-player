@@ -129,21 +129,29 @@ jobs:
           path: dist/Photo CD Player.dmg
           retention-days: 1
 
-  build-linux:
-    name: Linux Flatpak
+  build-linux-bundle:
+    name: Linux PyInstaller bundle
     runs-on: ubuntu-22.04
-    container:
-      image: bilelmoussaoui/flatpak-github-actions:freedesktop-23.08
-      options: --privileged
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev pkg-config \
+            python3-dev gir1.2-gtk-3.0 libgtk-3-dev
+
       - name: Install Python dependencies
-        run: python3 -m pip install --break-system-packages pillow numpy pygame cairosvg pyinstaller
+        run: pip install pillow numpy pygame cairosvg pyinstaller
 
       - name: Build with PyInstaller
         run: |
-          python3 -m PyInstaller --noconfirm --windowed --onedir \
+          pyinstaller --noconfirm --windowed --onedir \
             --name "Photo CD Player" \
             --add-data "assets:assets" \
             --add-data "photocd_fs_reader.py:." \
@@ -161,10 +169,34 @@ jobs:
             --hidden-import cairocffi \
             photocd_decoder.py
 
+      - name: Upload PyInstaller bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-pyinstaller-bundle
+          path: dist/Photo CD Player/
+          retention-days: 1
+
+  build-linux:
+    name: Linux Flatpak
+    needs: build-linux-bundle
+    runs-on: ubuntu-22.04
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-23.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download PyInstaller bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-pyinstaller-bundle
+          path: dist/photocd-player-bundle
+
+      - name: Restore executable bit
+        run: chmod +x "dist/photocd-player-bundle/Photo CD Player"
+
       - name: Prepare Flatpak resources
         run: |
-          mv "dist/Photo CD Player" dist/photocd-player-bundle
-
           cat > com.photocd.Player.desktop <<'EOF'
           [Desktop Entry]
           Name=Photo CD Player
