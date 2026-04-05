@@ -67,12 +67,12 @@ app = BUNDLE(
     name='Photo CD Player.app',
     icon='App Icon/PhotoCDLogo.icns',
     bundle_identifier='com.photocd.player',
-    version='1.0.0',
+    version='1.01',
     info_plist={
         'NSHighResolutionCapable': True,
-        'CFBundleShortVersionString': '1.0.0',
-        'CFBundleVersion': '1.0.0',
-        'NSHumanReadableCopyright': 'Photo CD Player v1.00',
+        'CFBundleShortVersionString': '1.01',
+        'CFBundleVersion': '1.01',
+        'NSHumanReadableCopyright': 'Photo CD Player v1.01',
         'LSMinimumSystemVersion': '12.0',
     },
 )

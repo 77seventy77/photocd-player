@@ -1428,7 +1428,7 @@ class PhotoCDViewer:
                        bg=C["btn"], fg=C["btn_fg"],
                        activebackground=C["btn_h"], activeforeground=C["btn_fg"],
                        font=("Helvetica", 11))
-        menu.add_checkbutton(label="Film Strip", variable=self._filmstrip_var,
+        menu.add_checkbutton(label="Film Strip (Resource Intensive)", variable=self._filmstrip_var,
                              command=self._toggle_filmstrip)
         menu.add_command(label="Set Library Location...", command=self.set_library_dir)
         menu.add_command(label="Set Save .png Location...", command=self.set_save_dir)
@@ -1786,6 +1786,13 @@ class PhotoCDViewer:
         self._set_disc_loaded_ui(False)
         if self.audio_player:
             self.audio_player.stop()
+        # Clear thumbnail sidebar
+        for w in self._thumb_inner.winfo_children():
+            w.destroy()
+        self._thumb_labels = []
+        self._sidebar.pack_forget()
+        self._filmstrip_visible = False
+        self._filmstrip_var.set(False)
         self._lib_frame.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._populate_library_list()
         self.root.title(APP_NAME)

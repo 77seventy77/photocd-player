@@ -222,13 +222,13 @@ jobs:
       - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.00
-          name: Photo CD Player v1.00
+          tag_name: v1.01
+          name: Photo CD Player v1.01
           draft: false
           prerelease: false
           make_latest: true
           body: |
-            ## Photo CD Player v1.00
+            ## Photo CD Player v1.01
 
             Decodes and plays Kodak Photo CD disc images (.cue/.bin).
 
