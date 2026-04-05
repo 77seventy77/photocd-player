@@ -130,8 +130,11 @@ jobs:
           retention-days: 1
 
   build-linux:
-    name: Linux AppImage
+    name: Linux Flatpak
     runs-on: ubuntu-22.04
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-23.08
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
 
@@ -139,12 +142,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev pkg-config \
-            python3-dev gir1.2-gtk-3.0 libgtk-3-dev fuse
 
       - name: Install Python dependencies
         run: pip install pillow numpy pygame cairosvg pyinstaller
@@ -169,43 +166,77 @@ jobs:
             --hidden-import cairocffi \
             photocd_decoder.py
 
-      - name: Package as AppImage
+      - name: Prepare Flatpak resources
         run: |
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
-          chmod +x appimagetool
+          mv "dist/Photo CD Player" dist/photocd-player-bundle
 
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
-          cp -r "dist/Photo CD Player/"* AppDir/usr/bin/
-          cp "App Icon/PhotoCDLogo.png" AppDir/usr/share/icons/hicolor/256x256/apps/photocd-player.png
-          cp "App Icon/PhotoCDLogo.png" AppDir/photocd-player.png
-
-          cat > AppDir/usr/share/applications/photocd-player.desktop << 'EOF'
+          cat > com.photocd.Player.desktop <<'EOF'
           [Desktop Entry]
           Name=Photo CD Player
           Comment=Play Kodak Photo CD disc images
-          Exec=Photo CD Player
-          Icon=photocd-player
+          Exec=photocd-player
+          Icon=com.photocd.Player
           Type=Application
           Categories=Graphics;Viewer;
           EOF
-          cp AppDir/usr/share/applications/photocd-player.desktop AppDir/photocd-player.desktop
 
-          cat > AppDir/AppRun << 'EOF'
-          #!/bin/bash
-          SELF=$(readlink -f "$0")
-          HERE=$(dirname "$SELF")
-          exec "$HERE/usr/bin/Photo CD Player" "$@"
+          cat > com.photocd.Player.metainfo.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <component type="desktop-application">
+            <id>com.photocd.Player</id>
+            <name>Photo CD Player</name>
+            <summary>Play Kodak Photo CD disc images</summary>
+            <metadata_license>CC0-1.0</metadata_license>
+            <project_license>GPL-3.0-or-later</project_license>
+            <description><p>Decodes and plays Kodak Photo CD disc images.</p></description>
+            <launchable type="desktop-id">com.photocd.Player.desktop</launchable>
+            <releases><release version="1.01" date="2026-04-04"/></releases>
+            <content_rating type="oars-1.1"/>
+          </component>
           EOF
-          chmod +x AppDir/AppRun
 
-          ARCH=x86_64 ./appimagetool AppDir "PhotoCDPlayer-Linux.AppImage"
+          cat > photocd-player.sh <<'EOF'
+          #!/bin/bash
+          exec "/app/share/photocd-player/Photo CD Player" "$@"
+          EOF
+          chmod +x photocd-player.sh
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          cp "App Icon/PhotoCDLogo.png" com.photocd.Player.png
+
+          cat > com.photocd.Player.yml <<'EOF'
+          app-id: com.photocd.Player
+          runtime: org.freedesktop.Platform
+          runtime-version: '23.08'
+          sdk: org.freedesktop.Sdk
+          command: photocd-player
+          finish-args:
+            - --share=ipc
+            - --socket=x11
+            - --socket=wayland
+            - --socket=pulseaudio
+            - --device=dri
+            - --filesystem=home
+          modules:
+            - name: photocd-player
+              buildsystem: simple
+              build-commands:
+                - mkdir -p /app/bin /app/share/photocd-player
+                - cp -r dist/photocd-player-bundle/. /app/share/photocd-player/
+                - install -Dm755 photocd-player.sh /app/bin/photocd-player
+                - install -Dm644 com.photocd.Player.desktop /app/share/applications/com.photocd.Player.desktop
+                - install -Dm644 com.photocd.Player.png /app/share/icons/hicolor/256x256/apps/com.photocd.Player.png
+                - install -Dm644 com.photocd.Player.metainfo.xml /app/share/metainfo/com.photocd.Player.metainfo.xml
+              sources:
+                - type: dir
+                  path: .
+          EOF
+
+      - name: Build Flatpak bundle
+        uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
         with:
-          name: PhotoCDPlayer-Linux
-          path: PhotoCDPlayer-Linux.AppImage
-          retention-days: 1
+          bundle: PhotoCDPlayer-Linux.flatpak
+          manifest-path: com.photocd.Player.yml
+          cache-key: flatpak-${{ github.sha }}
 
   release:
     name: Publish Release
@@ -237,7 +268,7 @@ jobs:
             |----------|------|
             | macOS (ARM64) | `Photo CD Player.dmg` |
             | Windows | `PhotoCDPlayer-Windows.zip` |
-            | Linux | `PhotoCDPlayer-Linux.AppImage` |
+            | Linux | `PhotoCDPlayer-Linux.flatpak` |
 
             ### Supported formats
             - Photo CD Master (Base, 4Base, 16Base)
@@ -246,4 +277,4 @@ jobs:
           files: |
             artifacts/PhotoCDPlayer-macOS/Photo CD Player.dmg
             artifacts/PhotoCDPlayer-Windows/PhotoCDPlayer-Windows.zip
-            artifacts/PhotoCDPlayer-Linux/PhotoCDPlayer-Linux.AppImage
+            artifacts/PhotoCDPlayer-Linux.flatpak/PhotoCDPlayer-Linux.flatpak
