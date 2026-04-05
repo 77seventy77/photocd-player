@@ -138,17 +138,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Install Python dependencies
-        run: pip install pillow numpy pygame cairosvg pyinstaller
+        run: python3 -m pip install --break-system-packages pillow numpy pygame cairosvg pyinstaller
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --noconfirm --windowed --onedir \
+          python3 -m PyInstaller --noconfirm --windowed --onedir \
             --name "Photo CD Player" \
             --add-data "assets:assets" \
             --add-data "photocd_fs_reader.py:." \
