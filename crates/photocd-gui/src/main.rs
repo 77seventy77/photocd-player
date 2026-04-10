@@ -1,5 +1,9 @@
 //! Photo CD Player (egui) — styled to match the original Python/Tkinter build.
 
+// Suppress the Windows console window in release builds. Debug builds keep
+// the console so `eprintln!` from diagnostics is visible during development.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod audio;
 
