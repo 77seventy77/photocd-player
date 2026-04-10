@@ -211,6 +211,7 @@ jobs:
           Icon=com.photocd.Player
           Type=Application
           Categories=Graphics;Viewer;
+          StartupWMClass=photocd-player
           EOF
 
           cd flatpak-build
@@ -238,6 +239,7 @@ jobs:
           Icon=photocd-player
           Type=Application
           Categories=Graphics;Viewer;
+          StartupWMClass=photocd-player
           EOF
           cp AppDir/usr/share/applications/photocd-player.desktop AppDir/photocd-player.desktop
 
