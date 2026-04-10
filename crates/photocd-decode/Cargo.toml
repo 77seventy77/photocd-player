@@ -1,0 +1,15 @@
+[package]
+name = "photocd-decode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "CLI decoder for Kodak Photo CD image packs"
+
+[[bin]]
+name = "photocd-decode"
+path = "src/main.rs"
+
+[dependencies]
+photocd-core = { path = "../photocd-core" }
+png = "0.17"

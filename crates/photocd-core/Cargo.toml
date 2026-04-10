@@ -1,0 +1,10 @@
+[package]
+name = "photocd-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Core decoder for Kodak Photo CD image packs"
+
+[dependencies]
+thiserror = "2"

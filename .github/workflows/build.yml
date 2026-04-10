@@ -5,69 +5,33 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
 jobs:
-  build-windows:
-    name: Windows EXE
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pillow numpy pygame cairosvg pyinstaller
-
-      - name: Build EXE
-        run: |
-          pyinstaller --noconfirm --windowed --onedir `
-            --name "Photo CD Player" `
-            --icon "App Icon/PhotoCDLogo.ico" `
-            --add-data "assets;assets" `
-            --add-data "photocd_fs_reader.py;." `
-            --add-data "photocd_disc_map.py;." `
-            --add-data "photocd_hires.py;." `
-            --add-data "photocd_playlist_parse.py;." `
-            --hidden-import PIL `
-            --hidden-import PIL.Image `
-            --hidden-import PIL.ImageTk `
-            --hidden-import numpy `
-            --hidden-import pygame `
-            --hidden-import cairosvg `
-            --hidden-import cssselect2 `
-            --hidden-import tinycss2 `
-            --hidden-import cairocffi `
-            photocd_decoder.py
-
-      - name: Zip Windows build
-        run: Compress-Archive -Path "dist/Photo CD Player" -DestinationPath "PhotoCDPlayer-Windows.zip"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PhotoCDPlayer-Windows
-          path: PhotoCDPlayer-Windows.zip
-          retention-days: 1
-
   build-macos:
     name: macOS App (ARM64)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
+      - name: Install Rust (aarch64-apple-darwin)
         run: |
-          brew install cairo
-          pip install pillow numpy pygame cairosvg pyinstaller
+          rustup update stable
+          rustup target add aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-arm64-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release -p photocd-gui --target aarch64-apple-darwin
 
       - name: Convert PNG to ICNS
         run: |
@@ -77,36 +41,36 @@ jobs:
             double=$((size * 2))
             sips -z $double $double "App Icon/PhotoCDLogo.png" --out /tmp/PhotoCD.iconset/icon_${size}x${size}@2x.png
           done
-          iconutil -c icns /tmp/PhotoCD.iconset -o "App Icon/PhotoCDLogo.icns"
+          iconutil -c icns /tmp/PhotoCD.iconset -o PhotoCDLogo.icns
 
-      - name: Build .app
+      - name: Create .app bundle
         run: |
-          CAIRO_LIB=$(brew --prefix cairo)/lib/libcairo.2.dylib
-          pyinstaller --noconfirm --windowed --onedir \
-            --name "Photo CD Player" \
-            --icon "App Icon/PhotoCDLogo.icns" \
-            --target-arch arm64 \
-            --add-data "assets:assets" \
-            --add-data "photocd_fs_reader.py:." \
-            --add-data "photocd_disc_map.py:." \
-            --add-data "photocd_hires.py:." \
-            --add-data "photocd_playlist_parse.py:." \
-            --add-binary "$CAIRO_LIB:." \
-            --runtime-hook "rthook_cairo.py" \
-            --hidden-import PIL \
-            --hidden-import PIL.Image \
-            --hidden-import PIL.ImageTk \
-            --hidden-import numpy \
-            --hidden-import pygame \
-            --hidden-import cairosvg \
-            --hidden-import cssselect2 \
-            --hidden-import tinycss2 \
-            --hidden-import cairocffi \
-            photocd_decoder.py
+          APP="dist/Photo CD Player.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/aarch64-apple-darwin/release/photocd-player "$APP/Contents/MacOS/Photo CD Player"
+          chmod +x "$APP/Contents/MacOS/Photo CD Player"
+          cp PhotoCDLogo.icns "$APP/Contents/Resources/PhotoCDLogo.icns"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Photo CD Player</string>
+            <key>CFBundleDisplayName</key><string>Photo CD Player</string>
+            <key>CFBundleIdentifier</key><string>com.photocd.player</string>
+            <key>CFBundleVersion</key><string>1.1.0</string>
+            <key>CFBundleShortVersionString</key><string>1.1.0</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleExecutable</key><string>Photo CD Player</string>
+            <key>CFBundleIconFile</key><string>PhotoCDLogo</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
 
-      - name: Ad-hoc sign the app
-        run: |
-          codesign --force --deep --sign - "dist/Photo CD Player.app"
+      - name: Ad-hoc sign
+        run: codesign --force --deep --sign - "dist/Photo CD Player.app"
 
       - name: Create DMG
         run: |
@@ -129,82 +93,178 @@ jobs:
           path: dist/Photo CD Player.dmg
           retention-days: 1
 
+  build-windows:
+    name: Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup update stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release -p photocd-gui
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/Photo CD Player" | Out-Null
+          Copy-Item "target/release/photocd-player.exe" "dist/Photo CD Player/Photo CD Player.exe"
+          Compress-Archive -Path "dist/Photo CD Player" -DestinationPath "PhotoCDPlayer-Windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoCDPlayer-Windows
+          path: PhotoCDPlayer-Windows.zip
+          retention-days: 1
+
   build-linux:
-    name: Linux AppImage
+    name: Linux Flatpak (AppImage fallback)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install system dependencies
+      - name: Install system deps
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev pkg-config \
-            python3-dev gir1.2-gtk-3.0 libgtk-3-dev fuse
+          sudo apt-get install -y \
+            libasound2-dev libgtk-3-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libayatana-appindicator3-dev librsvg2-dev libfuse2 pkg-config
 
-      - name: Install Python dependencies
-        run: pip install pillow numpy pygame cairosvg pyinstaller
+      - name: Install Rust
+        run: rustup update stable
 
-      - name: Build with PyInstaller
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release -p photocd-gui
+
+      # -----------------------------------------------------------------
+      # Attempt Flatpak first. If it fails (for any reason), the next
+      # step detects the failure via `steps.flatpak.outcome` and builds
+      # an AppImage instead. Flatpak is only tried once per run.
+      # -----------------------------------------------------------------
+      - name: Try Flatpak build
+        id: flatpak
+        continue-on-error: true
         run: |
-          pyinstaller --noconfirm --windowed --onedir \
-            --name "Photo CD Player" \
-            --add-data "assets:assets" \
-            --add-data "photocd_fs_reader.py:." \
-            --add-data "photocd_disc_map.py:." \
-            --add-data "photocd_hires.py:." \
-            --add-data "photocd_playlist_parse.py:." \
-            --hidden-import PIL \
-            --hidden-import PIL.Image \
-            --hidden-import PIL.ImageTk \
-            --hidden-import numpy \
-            --hidden-import pygame \
-            --hidden-import cairosvg \
-            --hidden-import cssselect2 \
-            --hidden-import tinycss2 \
-            --hidden-import cairocffi \
-            photocd_decoder.py
+          set -e
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
 
-      - name: Package as AppImage
+          mkdir -p flatpak-build/files
+          cp target/release/photocd-player flatpak-build/files/photocd-player
+          cp "App Icon/PhotoCDLogo.png" flatpak-build/files/PhotoCDLogo.png
+
+          cat > flatpak-build/com.photocd.Player.yml <<'EOF'
+          app-id: com.photocd.Player
+          runtime: org.freedesktop.Platform
+          runtime-version: '23.08'
+          sdk: org.freedesktop.Sdk
+          command: photocd-player
+          finish-args:
+            - --share=ipc
+            - --socket=fallback-x11
+            - --socket=wayland
+            - --socket=pulseaudio
+            - --device=dri
+            - --filesystem=host
+          modules:
+            - name: photocd-player
+              buildsystem: simple
+              build-commands:
+                - install -Dm755 photocd-player /app/bin/photocd-player
+                - install -Dm644 PhotoCDLogo.png /app/share/icons/hicolor/256x256/apps/com.photocd.Player.png
+                - install -Dm644 com.photocd.Player.desktop /app/share/applications/com.photocd.Player.desktop
+              sources:
+                - type: file
+                  path: files/photocd-player
+                - type: file
+                  path: files/PhotoCDLogo.png
+                - type: file
+                  path: com.photocd.Player.desktop
+          EOF
+
+          cat > flatpak-build/com.photocd.Player.desktop <<'EOF'
+          [Desktop Entry]
+          Name=Photo CD Player
+          Comment=Play Kodak Photo CD disc images
+          Exec=photocd-player
+          Icon=com.photocd.Player
+          Type=Application
+          Categories=Graphics;Viewer;
+          EOF
+
+          cd flatpak-build
+          flatpak-builder --user --install-deps-from=flathub --force-clean \
+            --repo=repo build-dir com.photocd.Player.yml
+          flatpak build-bundle repo ../PhotoCDPlayer-Linux.flatpak com.photocd.Player --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Fallback AppImage build
+        if: steps.flatpak.outcome == 'failure'
         run: |
+          set -e
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
           chmod +x appimagetool
 
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
-          cp -r "dist/Photo CD Player/"* AppDir/usr/bin/
+          cp target/release/photocd-player AppDir/usr/bin/photocd-player
           cp "App Icon/PhotoCDLogo.png" AppDir/usr/share/icons/hicolor/256x256/apps/photocd-player.png
           cp "App Icon/PhotoCDLogo.png" AppDir/photocd-player.png
 
-          cat > AppDir/usr/share/applications/photocd-player.desktop << 'EOF'
+          cat > AppDir/usr/share/applications/photocd-player.desktop <<'EOF'
           [Desktop Entry]
           Name=Photo CD Player
           Comment=Play Kodak Photo CD disc images
-          Exec=Photo CD Player
+          Exec=photocd-player
           Icon=photocd-player
           Type=Application
           Categories=Graphics;Viewer;
           EOF
           cp AppDir/usr/share/applications/photocd-player.desktop AppDir/photocd-player.desktop
 
-          cat > AppDir/AppRun << 'EOF'
+          cat > AppDir/AppRun <<'EOF'
           #!/bin/bash
           SELF=$(readlink -f "$0")
           HERE=$(dirname "$SELF")
-          exec "$HERE/usr/bin/Photo CD Player" "$@"
+          exec "$HERE/usr/bin/photocd-player" "$@"
           EOF
           chmod +x AppDir/AppRun
 
           ARCH=x86_64 ./appimagetool AppDir "PhotoCDPlayer-Linux.AppImage"
 
+      - name: Determine Linux artifact
+        id: linux_artifact
+        run: |
+          if [ -f "PhotoCDPlayer-Linux.flatpak" ]; then
+            echo "file=PhotoCDPlayer-Linux.flatpak" >> $GITHUB_OUTPUT
+          else
+            echo "file=PhotoCDPlayer-Linux.AppImage" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PhotoCDPlayer-Linux
-          path: PhotoCDPlayer-Linux.AppImage
+          path: ${{ steps.linux_artifact.outputs.file }}
           retention-days: 1
 
   release:
@@ -222,28 +282,27 @@ jobs:
       - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.01
-          name: Photo CD Player v1.01
+          tag_name: v1.02
+          name: Photo CD Player v1.02
           draft: false
           prerelease: false
           make_latest: true
           body: |
-            ## Photo CD Player v1.01
+            ## Photo CD Player v1.02
 
-            Decodes and plays Kodak Photo CD disc images (.cue/.bin).
+            Rust rewrite. Decodes and plays Kodak Photo CD disc images (.cue/.bin).
 
             ### Downloads
             | Platform | File |
             |----------|------|
             | macOS (ARM64) | `Photo CD Player.dmg` |
             | Windows | `PhotoCDPlayer-Windows.zip` |
-            | Linux | `PhotoCDPlayer-Linux.AppImage` |
+            | Linux | `PhotoCDPlayer-Linux.flatpak` or `PhotoCDPlayer-Linux.AppImage` |
 
             ### Supported formats
-            - Photo CD Master (Base, 4Base, 16Base)
-            - Photo CD Portfolio (Base)
+            - Photo CD: Base, 4Base, 16Base
             - Standalone `.pcd` and `.rgb` files
           files: |
             artifacts/PhotoCDPlayer-macOS/Photo CD Player.dmg
             artifacts/PhotoCDPlayer-Windows/PhotoCDPlayer-Windows.zip
-            artifacts/PhotoCDPlayer-Linux/PhotoCDPlayer-Linux.AppImage
+            artifacts/PhotoCDPlayer-Linux/*

@@ -5,6 +5,9 @@ build/
 dist/
 *.spec.bak
 
+# Rust
+target/
+
 # Test/extracted files
 *.PCD
 *.RGB
@@ -18,3 +21,6 @@ dist/
 # Large reference files
 InfranView reference images/
 Specification References/
+
+# Local test library (user data — never commit)
+Photo CD Library/
