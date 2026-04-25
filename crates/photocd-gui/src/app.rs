@@ -38,8 +38,10 @@ use crate::audio::{AudioPlayer, AudioTrackInfo};
 // Version
 // ---------------------------------------------------------------------------
 
-pub const APP_VERSION: &str = "v1.02";
+pub const APP_VERSION: &str = "v1.03";
 pub const APP_NAME: &str = "Photo CD Player";
+
+const LOGO_PNG: &[u8] = include_bytes!("../../../icons/photo_cd_player_-_logo_v3.png");
 
 // ---------------------------------------------------------------------------
 // Theme colours (matching Python build)
@@ -47,15 +49,15 @@ pub const APP_NAME: &str = "Photo CD Player";
 
 struct Theme;
 impl Theme {
-    const BG: Color32 = Color32::from_rgb(0x1a, 0x1a, 0x1a);
+    const BG: Color32 = Color32::from_rgb(0x12, 0x0D, 0x09);
     const SIDEBAR: Color32 = Color32::from_rgb(0x14, 0x14, 0x14);
     const TOOLBAR: Color32 = Color32::from_rgb(0x21, 0x21, 0x21);
     const CANVAS: Color32 = Color32::from_rgb(0x00, 0x00, 0x00);
-    const FG: Color32 = Color32::from_rgb(0xB7, 0xB7, 0xB7);
-    const FG_DIM: Color32 = Color32::from_rgb(0xB7, 0xB7, 0xB7);
-    const BTN: Color32 = Color32::from_rgb(0xB7, 0xB7, 0xB7);
-    const BTN_HOVER: Color32 = Color32::from_rgb(0xD0, 0xD0, 0xD0);
-    const BTN_FG: Color32 = Color32::from_rgb(0x1E, 0x1E, 0x1E);
+    const FG: Color32 = Color32::from_rgb(0xCC, 0xB0, 0x9C);
+    const FG_DIM: Color32 = Color32::from_rgb(0xCC, 0xB0, 0x9C);
+    const BTN: Color32 = Color32::from_rgb(0xC8, 0xB8, 0xAE);
+    const BTN_HOVER: Color32 = Color32::from_rgb(0xD8, 0xCA, 0xC2);
+    const BTN_FG: Color32 = Color32::from_rgb(0x12, 0x0D, 0x09);
     const SEP: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
     const SELECT_BG: Color32 = Color32::from_rgb(0xB7, 0xB7, 0xB7);
     const SELECT_FG: Color32 = Color32::from_rgb(0x1E, 0x1E, 0x1E);
@@ -241,6 +243,12 @@ pub struct PhotoCdApp {
     // Cached width of the bottom toolbar button row (for centering).
     button_row_width: f32,
 
+    // Temp dir extracted from an archive, cleaned up on disc close.
+    temp_disc_dir: Option<std::path::PathBuf>,
+
+    // Cached library logo texture
+    logo_texture: Option<TextureHandle>,
+
     // Worker
     worker_tx: mpsc::Sender<WorkerMsg>,
     worker_rx: mpsc::Receiver<WorkerResult>,
@@ -273,9 +281,11 @@ impl Default for PhotoCdApp {
             slideshow_deadline: None,
             audio: AudioPlayer::new(),
             volume: 100.0,
-            status: "Double click a Library title or open a file to load a disc.".into(),
+            status: "Click a Library title or open a file to load a disc.".into(),
             fullscreen: false,
             button_row_width: 0.0,
+            temp_disc_dir: None,
+            logo_texture: None,
             worker_tx,
             worker_rx,
             _worker: Some(worker),
@@ -547,33 +557,57 @@ impl PhotoCdApp {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return;
         };
-        let mut entries: Vec<PathBuf> = rd
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.is_dir())
-            .collect();
-        entries.sort_by(|a, b| {
+
+        let mut all: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        all.sort_by(|a, b| {
             a.file_name()
                 .map(|s| s.to_ascii_lowercase())
                 .cmp(&b.file_name().map(|s| s.to_ascii_lowercase()))
         });
-        for sub in entries {
-            if let Ok(inner) = std::fs::read_dir(&sub) {
-                for e in inner.flatten() {
-                    let p = e.path();
-                    if p.extension()
-                        .and_then(|x| x.to_str())
-                        .map(|s| s.eq_ignore_ascii_case("cue"))
-                        == Some(true)
-                    {
-                        let display_name = sub
-                            .file_name()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| p.display().to_string());
-                        self.library.push(LibraryEntry {
-                            cue_path: p,
-                            display_name,
-                        });
-                        break; // one cue per subfolder
+
+        for item in all {
+            let ext = item
+                .extension()
+                .and_then(|x| x.to_str())
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
+
+            // Archive files (.zip / .7z) directly in the library folder
+            // — only show if store mode (fast metadata-only check)
+            if ext == "zip" || ext == "7z" {
+                if crate::archive::is_eligible(&item) {
+                    let display_name = item
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| item.display().to_string());
+                    self.library.push(LibraryEntry {
+                        cue_path: item,
+                        display_name,
+                    });
+                }
+                continue;
+            }
+
+            // Subdirectory: look for a .cue inside (original behaviour)
+            if item.is_dir() {
+                if let Ok(inner) = std::fs::read_dir(&item) {
+                    for e in inner.flatten() {
+                        let p = e.path();
+                        if p.extension()
+                            .and_then(|x| x.to_str())
+                            .map(|s| s.eq_ignore_ascii_case("cue"))
+                            == Some(true)
+                        {
+                            let display_name = item
+                                .file_name()
+                                .map(|s| s.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| p.display().to_string());
+                            self.library.push(LibraryEntry {
+                                cue_path: p,
+                                display_name,
+                            });
+                            break;
+                        }
                     }
                 }
             }
@@ -872,28 +906,48 @@ impl PhotoCdApp {
         self.stop_slideshow();
         self.image_timings.clear();
         self.disc_info = DiscInfo::default();
-        self.status = "Double click a Library title or open a file to load a disc.".into();
+        self.status = "Click a Library title or open a file to load a disc.".into();
+        // Clean up any archive temp dir from the previous disc.
+        if let Some(dir) = self.temp_disc_dir.take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.window_title()));
+    }
+
+    fn open_archive(&mut self, path: PathBuf) {
+        use crate::archive::{check_zip, check_7z, ArchiveResult};
+        let ext = path.extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+
+        self.status = format!("Checking archive {}…", path.file_name().unwrap_or_default().to_string_lossy());
+
+        let result = if ext == "zip" {
+            check_zip(&path)
+        } else {
+            check_7z(&path)
+        };
+
+        match result {
+            ArchiveResult::Eligible(disc) => {
+                // Clean up any previous temp dir.
+                if let Some(old) = self.temp_disc_dir.take() {
+                    let _ = std::fs::remove_dir_all(old);
+                }
+                self.temp_disc_dir = Some(disc.temp_dir);
+                self.open_cue(disc.cue_path);
+            }
+            ArchiveResult::NotEligible(reason) => {
+                self.status = format!("Archive not eligible: {reason}");
+            }
+        }
     }
 
     fn save_png(&mut self) {
         let Some(rgb) = &self.current_rgb else {
             self.status = "Nothing to save \u{2014} image not loaded yet.".into();
             return;
-        };
-        // Ensure save dir exists
-        let save_dir = match &self.config.save_dir {
-            Some(d) => PathBuf::from(d),
-            None => {
-                // Prompt for directory
-                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                    self.config.save_dir = Some(dir.display().to_string());
-                    save_config(&self.config);
-                    dir
-                } else {
-                    return;
-                }
-            }
         };
 
         let name = if !self.images.is_empty() && self.current_idx < self.images.len() {
@@ -902,13 +956,26 @@ impl PhotoCdApp {
             "image".to_string()
         };
         let base = name.strip_suffix(".PCD").or(name.strip_suffix(".pcd")).unwrap_or(&name);
-        let png_name = format!("{}.png", base);
-        let out_path = save_dir.join(&png_name);
+        let suggested = format!("{}.png", base);
+
+        let out_path = if let Some(dir) = &self.config.save_dir {
+            PathBuf::from(dir).join(&suggested)
+        } else {
+            // No save folder set yet — ask the user to pick one
+            let initial = dirs::home_dir().unwrap_or_default();
+            let Some(dir) = rfd::FileDialog::new().set_directory(&initial).pick_folder() else {
+                return;
+            };
+            self.config.save_dir = Some(dir.display().to_string());
+            save_config(&self.config);
+            dir.join(&suggested)
+        };
 
         let (w, h) = self.current_texture_size;
         match image::save_buffer(&out_path, rgb, w, h, image::ColorType::Rgb8) {
             Ok(()) => {
-                self.status = format!("Saved  {}  \u{2713}", png_name);
+                let fname = out_path.file_name().unwrap_or_default().to_string_lossy();
+                self.status = format!("Saved  {}  \u{2713}", fname);
             }
             Err(e) => {
                 self.status = format!("Save failed: {e}");
@@ -923,10 +990,18 @@ impl PhotoCdApp {
             .as_deref()
             .unwrap_or("~");
         let dialog = rfd::FileDialog::new()
-            .add_filter("Photo CD files", &["cue", "pcd", "rgb"])
+            .add_filter("Photo CD / Archive", &["cue", "pcd", "rgb", "zip", "7z"])
             .set_directory(initial);
         if let Some(path) = dialog.pick_file() {
-            self.open_cue(path);
+            let ext = path.extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
+            if ext == "zip" || ext == "7z" {
+                self.open_archive(path);
+            } else {
+                self.open_cue(path);
+            }
         }
     }
 
@@ -946,7 +1021,7 @@ impl PhotoCdApp {
             self.config.library_dir = Some(dir.display().to_string());
             save_config(&self.config);
             self.scan_library();
-            self.status = format!("{} disc(s) found in library.", self.library.len());
+            self.status = format!("{} discs found in library.", self.library.len());
         }
     }
 
@@ -970,7 +1045,7 @@ impl PhotoCdApp {
 // ---------------------------------------------------------------------------
 
 fn themed_button(ui: &mut egui::Ui, text: &str) -> bool {
-    let font_id = FontId::proportional(12.0);
+    let font_id = FontId::new(18.0, egui::FontFamily::Name("SemiBold".into()));
     let text_width = ui.fonts(|f| {
         f.layout_no_wrap(text.to_owned(), font_id.clone(), Theme::BTN_FG)
             .size()
@@ -978,7 +1053,7 @@ fn themed_button(ui: &mut egui::Ui, text: &str) -> bool {
     });
     let desired_size = Vec2::new(
         ui.spacing().interact_size.x.max(text_width + 16.0),
-        24.0,
+        30.0,
     );
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
 
@@ -988,8 +1063,7 @@ fn themed_button(ui: &mut egui::Ui, text: &str) -> bool {
         } else {
             Theme::BTN
         };
-        let rounding = Rounding::same(3.0);
-        ui.painter().rect_filled(rect, rounding, bg);
+        ui.painter().rect_filled(rect, Rounding::same(3.0), bg);
         ui.painter().text(
             rect.center(),
             Align2::CENTER_CENTER,
@@ -1002,7 +1076,7 @@ fn themed_button(ui: &mut egui::Ui, text: &str) -> bool {
 }
 
 fn themed_nav_button(ui: &mut egui::Ui, text: &str) -> bool {
-    let desired_size = Vec2::new(28.0, 24.0);
+    let desired_size = Vec2::new(30.0, 30.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
     if ui.is_rect_visible(rect) {
         let bg = if response.hovered() {
@@ -1016,7 +1090,7 @@ fn themed_nav_button(ui: &mut egui::Ui, text: &str) -> bool {
             rect.center(),
             Align2::CENTER_CENTER,
             text,
-            FontId::proportional(13.0),
+            FontId::proportional(18.0),
             Theme::BTN_FG,
         );
     }
@@ -1088,7 +1162,7 @@ impl eframe::App for PhotoCdApp {
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         ui.add_space(ui.available_width() * 0.02);
-                        // Centered status spanning full width
+                        // Centered status spanning full width (credit painted on right after)
                         let status_text = if self.view == View::Image
                             && !self.disc_title.is_empty()
                             && !self.images.is_empty()
@@ -1123,10 +1197,43 @@ impl eframe::App for PhotoCdApp {
                                 ui.label(
                                     RichText::new(&status_text)
                                         .color(Theme::FG_DIM)
-                                        .size(12.0),
+                                        .size(14.0)
+                                        .family(egui::FontFamily::Name("SemiBold".into())),
                                 );
                             },
                         );
+
+                        // "whatev.indus" credit — right edge of this row, vertically centred
+                        {
+                            let credit = "whatev.indus";
+                            let font = FontId::new(14.0, egui::FontFamily::Name("SemiBold".into()));
+                            let dim = Theme::FG_DIM;
+                            let lit = Color32::from_rgb(0xF0, 0xCC, 0xAA);
+                            let row = ui.max_rect();
+                            let sz = ui.fonts(|f| {
+                                f.layout_no_wrap(credit.to_owned(), font.clone(), dim).size()
+                            });
+                            let tl = Pos2::new(
+                                row.right() - sz.x - 8.0,
+                                row.center().y - sz.y / 2.0,
+                            );
+                            let rect = Rect::from_min_size(tl, sz);
+                            let resp = ui.allocate_rect(rect, egui::Sense::click());
+                            if resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            let color = if resp.hovered() { lit } else { dim };
+                            ui.painter().text(tl, Align2::LEFT_TOP, credit, font, color);
+                            if resp.clicked() {
+                                ui.output_mut(|o| {
+                                    o.open_url = Some(egui::OpenUrl {
+                                        url: "https://sites.google.com/view/whateverindustries/home"
+                                            .to_owned(),
+                                        new_tab: true,
+                                    });
+                                });
+                            }
+                        }
                     });
                 });
 
@@ -1138,7 +1245,7 @@ impl eframe::App for PhotoCdApp {
                     [Pos2::new(sep_rect.left(), y), Pos2::new(sep_rect.right(), y)],
                     Stroke::new(1.0, Theme::SEP),
                 );
-                ui.add_space(2.0);
+                ui.add_space(6.0);
 
                 // Button row — horizontally centered by padding based on
                 // last frame's measured content width.
@@ -1148,11 +1255,25 @@ impl eframe::App for PhotoCdApp {
                     ui.add_space(left_pad);
                     let x_start = ui.cursor().min.x;
 
-                    // Volume slider (decorative)
-                    ui.label(RichText::new("\u{1F508}").size(13.0).color(Theme::FG_DIM));
-                    let vol_rect = ui.allocate_space(Vec2::new(90.0, 18.0)).1;
+                    // Volume slider — icons painted manually so they vertically centre
+                    // against the 32px button row height.
+                    {
+                        let icon = "\u{1F508}";
+                        let font = FontId::proportional(20.0);
+                        let iw = ui.fonts(|f| f.layout_no_wrap(icon.to_owned(), font.clone(), Theme::BTN).size().x);
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(iw + 2.0, 30.0), egui::Sense::hover());
+                        ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, font, Theme::BTN);
+                    }
+                    let vol_rect = ui.allocate_space(Vec2::new(120.0, 30.0)).1;
                     self.paint_volume_slider(ui, vol_rect);
-                    ui.label(RichText::new("\u{1F50A}").size(13.0).color(Theme::FG_DIM));
+                    ui.add_space(6.0);
+                    {
+                        let icon = "\u{1F50A}";
+                        let font = FontId::proportional(20.0);
+                        let iw = ui.fonts(|f| f.layout_no_wrap(icon.to_owned(), font.clone(), Theme::BTN).size().x);
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(iw + 2.0, 30.0), egui::Sense::hover());
+                        ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, font, Theme::BTN);
+                    }
 
                     // Separator
                     paint_vsep(ui);
@@ -1188,7 +1309,8 @@ impl eframe::App for PhotoCdApp {
                                 self.images.len()
                             ))
                             .color(Theme::FG_DIM)
-                            .size(12.0),
+                            .size(14.0)
+                            .family(egui::FontFamily::Name("SemiBold".into())),
                         );
 
                         paint_vsep(ui);
@@ -1197,7 +1319,8 @@ impl eframe::App for PhotoCdApp {
                         ui.label(
                             RichText::new("Resolution:")
                                 .color(Theme::FG_DIM)
-                                .size(12.0),
+                                .size(14.0)
+                                .family(egui::FontFamily::Name("SemiBold".into())),
                         );
                         let prev_tier = self.tier;
                         let max_idx = match self.max_tier {
@@ -1205,15 +1328,16 @@ impl eframe::App for PhotoCdApp {
                             Tier::FourBase => 1,
                             Tier::SixteenBase => 2,
                         };
+                        let tier_font = egui::FontFamily::Name("SemiBold".into());
                         egui::ComboBox::from_id_salt("tier_sel")
-                            .selected_text(self.tier.label())
+                            .selected_text(RichText::new(self.tier.label()).size(14.0).family(tier_font.clone()))
                             .width(70.0)
                             .show_ui(ui, |ui| {
                                 for (i, t) in ALL_TIERS.iter().enumerate() {
                                     if i > max_idx {
                                         break;
                                     }
-                                    ui.selectable_value(&mut self.tier, *t, t.label());
+                                    ui.selectable_value(&mut self.tier, *t, RichText::new(t.label()).size(14.0).family(tier_font.clone()));
                                 }
                             });
                         if self.tier != prev_tier {
@@ -1247,22 +1371,22 @@ impl eframe::App for PhotoCdApp {
                         self.toggle_fullscreen(ctx);
                     }
 
-                    // Save .png (only when image loaded)
+                    // Save PNG (only when image loaded)
                     if self.view == View::Image && self.current_rgb.is_some() {
-                        if themed_button(ui, "Save .png") {
+                        if themed_button(ui, "Save PNG") {
                             self.save_png();
                         }
                     }
 
-                    // Separator before the Set-folder buttons
-                    paint_vsep(ui);
-
-                    // Library / save-dir configuration
-                    if themed_button(ui, "Set Library Folder") {
-                        self.set_library_dir();
-                    }
-                    if themed_button(ui, "Set PNG Save Folder") {
-                        self.set_save_dir();
+                    // Set-folder buttons only in Library view
+                    if self.view == View::Library {
+                        paint_vsep(ui);
+                        if themed_button(ui, "Set Library Folder") {
+                            self.set_library_dir();
+                        }
+                        if themed_button(ui, "Set PNG Save Folder") {
+                            self.set_save_dir();
+                        }
                     }
 
                     // Deferred open (to avoid borrow issues)
@@ -1306,27 +1430,39 @@ impl PhotoCdApp {
     fn paint_library(&mut self, ui: &mut egui::Ui) {
         let avail = ui.available_size();
 
-        // Title
-        ui.add_space(30.0);
-        ui.vertical_centered(|ui| {
-            ui.label(
-                RichText::new("Photo CD Library")
-                    .color(Theme::FG)
-                    .size(18.0)
-                    .strong(),
+        // Logo
+        ui.add_space(20.0);
+        let tex = self.logo_texture.get_or_insert_with(|| {
+            let img = image::load_from_memory(LOGO_PNG)
+                .expect("logo PNG")
+                .to_rgba8();
+            let (w, h) = img.dimensions();
+            let ci = egui::ColorImage::from_rgba_unmultiplied(
+                [w as usize, h as usize],
+                img.as_raw(),
             );
+            ui.ctx().load_texture("library_logo", ci, TextureOptions::LINEAR)
         });
-        ui.add_space(10.0);
+        let logo_h = 90.0;
+        let logo_w = tex.size()[0] as f32 / tex.size()[1] as f32 * logo_h;
+        ui.vertical_centered(|ui| {
+            ui.add(egui::Image::new((tex.id(), Vec2::new(logo_w, logo_h))));
+        });
+        ui.add_space(9.0);
 
         if self.library.is_empty() {
+            // Centre only in the space below the logo, not the full panel.
+            let remaining = ui.available_height();
+            let text_h = 42.0; // approximate height of 2 lines at 16px
+            let pad = (remaining * 0.4 - text_h / 2.0).max(0.0);
+            ui.add_space(pad);
             ui.vertical_centered(|ui| {
-                ui.add_space(20.0);
                 ui.label(
                     RichText::new(
                         "Click \"Set Library Folder\" and navigate\nwhere your Photo CD files are kept.",
                     )
                     .color(Theme::FG_DIM)
-                    .size(14.0),
+                    .size(16.0),
                 );
             });
             return;
@@ -1337,7 +1473,7 @@ impl PhotoCdApp {
         ui.vertical_centered(|ui| {
             ui.set_max_width(list_width);
 
-            let row_height = 22.0;
+            let row_height = 28.0;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -1350,30 +1486,38 @@ impl PhotoCdApp {
                         );
                         let rect = response.rect;
 
-                        // Hover highlight
+                        // Subtle hover highlight
                         if response.hovered() {
                             ui.painter().rect_filled(
                                 rect,
                                 Rounding::ZERO,
-                                Color32::from_rgba_premultiplied(0xB7, 0xB7, 0xB7, 0x18),
+                                Color32::from_rgb(0x22, 0x1A, 0x12),
                             );
                         }
 
-                        // Text
+                        let font = FontId::new(19.0, egui::FontFamily::Name("SemiBold".into()));
                         ui.painter().text(
                             Pos2::new(rect.left() + 8.0, rect.center().y),
                             Align2::LEFT_CENTER,
                             &entry.display_name,
-                            FontId::proportional(13.0),
+                            font,
                             Theme::FG_DIM,
                         );
 
-                        if response.double_clicked() {
+                        if response.clicked() {
                             open_request = Some(entry.cue_path.clone());
                         }
                     }
                     if let Some(p) = open_request {
-                        self.open_cue(p);
+                        let ext = p.extension()
+                            .and_then(|e| e.to_str())
+                            .map(|s| s.to_ascii_lowercase())
+                            .unwrap_or_default();
+                        if ext == "zip" || ext == "7z" {
+                            self.open_archive(p);
+                        } else {
+                            self.open_cue(p);
+                        }
                     }
                 });
         });
@@ -1412,8 +1556,8 @@ impl PhotoCdApp {
     fn paint_volume_slider(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let painter = ui.painter();
         let cy = rect.center().y;
-        let track_h = 4.0;
-        let handle_r = 6.0;
+        let track_h = 5.0;
+        let handle_r = 8.0;
 
         // Trough
         painter.rect_filled(
@@ -1434,7 +1578,7 @@ impl PhotoCdApp {
                     Pos2::new(cx, cy + track_h / 2.0),
                 ),
                 Rounding::same(2.0),
-                Theme::BTN_HOVER,
+                Theme::BTN,
             );
         }
 
@@ -1443,7 +1587,7 @@ impl PhotoCdApp {
             Pos2::new(cx, cy),
             handle_r,
             Theme::BTN,
-            Stroke::new(1.0, Theme::BTN_HOVER),
+            Stroke::new(1.0, Theme::BTN),
         );
 
         // Interaction
@@ -1459,9 +1603,16 @@ impl PhotoCdApp {
 }
 
 fn paint_vsep(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 18.0), egui::Sense::hover());
-    ui.painter()
-        .rect_filled(rect, Rounding::ZERO, Theme::SEP);
+    ui.add_space(6.0);
+    // Allocate full button height so egui centers it; draw only the visible portion.
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 30.0), egui::Sense::hover());
+    let cy = rect.center().y;
+    let half = 14.0;
+    ui.painter().rect_filled(
+        Rect::from_min_max(Pos2::new(rect.left(), cy - half), Pos2::new(rect.right(), cy + half)),
+        Rounding::ZERO,
+        Theme::SEP,
+    );
     ui.add_space(6.0);
 }
 
