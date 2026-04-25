@@ -59,8 +59,8 @@ impl Theme {
     const BTN_HOVER: Color32 = Color32::from_rgb(0xD8, 0xCA, 0xC2);
     const BTN_FG: Color32 = Color32::from_rgb(0x12, 0x0D, 0x09);
     const SEP: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
-    const SELECT_BG: Color32 = Color32::from_rgb(0xB7, 0xB7, 0xB7);
-    const SELECT_FG: Color32 = Color32::from_rgb(0x1E, 0x1E, 0x1E);
+    const SELECT_BG: Color32 = Color32::from_rgb(0x50, 0x38, 0x22);
+    const SELECT_FG: Color32 = Color32::from_rgb(0xCC, 0xB0, 0x9C);
 }
 
 // ---------------------------------------------------------------------------
@@ -1635,6 +1635,8 @@ fn apply_theme(ctx: &egui::Context) {
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, Theme::BTN_FG);
     visuals.widgets.active.bg_fill = Theme::BTN_HOVER;
     visuals.widgets.active.fg_stroke = Stroke::new(1.0, Theme::BTN_FG);
+    visuals.widgets.open.bg_fill = Theme::BTN_HOVER;
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0, Theme::BTN_FG);
 
     visuals.selection.bg_fill = Theme::SELECT_BG;
     visuals.selection.stroke = Stroke::new(1.0, Theme::SELECT_FG);
