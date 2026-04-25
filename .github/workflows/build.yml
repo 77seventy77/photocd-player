@@ -40,7 +40,7 @@ jobs:
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp target/aarch64-apple-darwin/release/photocd-player "$APP/Contents/MacOS/Photo CD Player"
           chmod +x "$APP/Contents/MacOS/Photo CD Player"
-          cp icons/PhotoCDLogo.icns "$APP/Contents/Resources/PhotoCDLogo.icns"
+          cp icons/PhotoCD_AppIcon_v2.icns "$APP/Contents/Resources/PhotoCDLogo.icns"
           cat > "$APP/Contents/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -144,8 +144,8 @@ jobs:
 
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
           cp target/release/photocd-player AppDir/usr/bin/photocd-player
-          cp icons/PhotoCDLogo.png AppDir/usr/share/icons/hicolor/256x256/apps/photocd-player.png
-          cp icons/PhotoCDLogo.png AppDir/photocd-player.png
+          cp icons/PhotoCD_AppIcon_v2.png AppDir/usr/share/icons/hicolor/256x256/apps/photocd-player.png
+          cp icons/PhotoCD_AppIcon_v2.png AppDir/photocd-player.png
 
           cat > AppDir/usr/share/applications/photocd-player.desktop <<'EOF'
           [Desktop Entry]
