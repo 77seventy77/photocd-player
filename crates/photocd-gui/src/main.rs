@@ -13,14 +13,27 @@ const FONT_REGULAR: &[u8]  = include_bytes!("../../../assets/Lato-Regular.ttf");
 const FONT_SEMIBOLD: &[u8] = include_bytes!("../../../assets/Lato-Semibold.ttf");
 const FONT_BOLD: &[u8]     = include_bytes!("../../../assets/Lato-Bold.ttf");
 
+fn apply_squircle(rgba: &mut [u8], width: u32, height: u32) {
+    let (cx, cy) = (width as f32 / 2.0, height as f32 / 2.0);
+    let r = cx.min(cy);
+    const N: f32 = 5.0;
+    for y in 0..height {
+        for x in 0..width {
+            let nx = ((x as f32 - cx) / r).abs();
+            let ny = ((y as f32 - cy) / r).abs();
+            if nx.powf(N) + ny.powf(N) > 1.0 {
+                rgba[((y * width + x) * 4 + 3) as usize] = 0;
+            }
+        }
+    }
+}
+
 fn load_icon() -> Option<egui::IconData> {
     let img = image::load_from_memory(ICON_PNG).ok()?.to_rgba8();
     let (width, height) = img.dimensions();
-    Some(egui::IconData {
-        rgba: img.into_raw(),
-        width,
-        height,
-    })
+    let mut rgba = img.into_raw();
+    apply_squircle(&mut rgba, width, height);
+    Some(egui::IconData { rgba, width, height })
 }
 
 fn setup_fonts(ctx: &egui::Context) {
