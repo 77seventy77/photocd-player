@@ -2049,14 +2049,14 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "photocd-core"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "photocd-decode"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "photocd-core",
  "png",
@@ -2064,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "photocd-gui"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "dirs",
  "eframe",

@@ -38,7 +38,7 @@ use crate::audio::{AudioPlayer, AudioTrackInfo};
 // Version
 // ---------------------------------------------------------------------------
 
-pub const APP_VERSION: &str = "v1.03";
+pub const APP_VERSION: &str = "v1.0.4";
 pub const APP_NAME: &str = "Photo CD Player";
 
 const LOGO_PNG: &[u8] = include_bytes!("../../../icons/photo_cd_player_-_logo_v3.png");
@@ -58,9 +58,18 @@ impl Theme {
     const BTN: Color32 = Color32::from_rgb(0xC8, 0xB8, 0xAE);
     const BTN_HOVER: Color32 = Color32::from_rgb(0xD8, 0xCA, 0xC2);
     const BTN_FG: Color32 = Color32::from_rgb(0x12, 0x0D, 0x09);
+    const BTN_STROKE: Color32 = Color32::from_rgb(0x8A, 0x75, 0x65);
+    const BTN_SUBTLE: Color32 = Color32::from_rgb(0x3A, 0x2D, 0x25);
+    const BTN_SUBTLE_HOVER: Color32 = Color32::from_rgb(0x4A, 0x39, 0x2F);
+    const BTN_SUBTLE_FG: Color32 = Color32::from_rgb(0xE8, 0xD5, 0xC7);
+    const BTN_SUBTLE_STROKE: Color32 = Color32::from_rgb(0x63, 0x4C, 0x3E);
     const SEP: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
     const SELECT_BG: Color32 = Color32::from_rgb(0x50, 0x38, 0x22);
     const SELECT_FG: Color32 = Color32::from_rgb(0xCC, 0xB0, 0x9C);
+
+    fn btn_shadow() -> Color32 {
+        Color32::from_rgba_unmultiplied(0x00, 0x00, 0x00, 0x48)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1044,54 +1053,100 @@ impl PhotoCdApp {
 // Custom button helper
 // ---------------------------------------------------------------------------
 
-fn themed_button(ui: &mut egui::Ui, text: &str) -> bool {
-    let font_id = FontId::new(18.0, egui::FontFamily::Name("SemiBold".into()));
+#[derive(Clone, Copy)]
+enum ButtonStyle {
+    Secondary,
+    Subtle,
+}
+
+fn paint_toolbar_button(
+    ui: &egui::Ui,
+    rect: Rect,
+    response: &egui::Response,
+    text: &str,
+    font_id: FontId,
+    style: ButtonStyle,
+) {
+    let (bg, fg, stroke_color) = match style {
+        ButtonStyle::Subtle => {
+            if response.is_pointer_button_down_on() {
+                (Theme::BTN_SUBTLE_HOVER, Theme::BTN_SUBTLE_FG, Theme::BTN_SUBTLE_STROKE)
+            } else if response.hovered() {
+                (Theme::BTN_SUBTLE_HOVER, Theme::BTN_SUBTLE_FG, Theme::BTN_SUBTLE_STROKE)
+            } else {
+                (Theme::BTN_SUBTLE, Theme::BTN_SUBTLE_FG, Theme::BTN_SUBTLE_STROKE)
+            }
+        }
+        ButtonStyle::Secondary => {
+            if response.is_pointer_button_down_on() {
+                (Theme::BTN_HOVER, Theme::BTN_FG, Theme::BTN_STROKE)
+            } else if response.hovered() {
+                (Theme::BTN_HOVER, Theme::BTN_FG, Theme::BTN_STROKE)
+            } else {
+                (Theme::BTN, Theme::BTN_FG, Theme::BTN_STROKE)
+            }
+        }
+    };
+    let rounding = Rounding::same(9.0);
+    let shadow_offset = if response.is_pointer_button_down_on() {
+        Vec2::new(0.0, 1.0)
+    } else {
+        Vec2::new(0.0, 2.0)
+    };
+    let face_rect = if response.is_pointer_button_down_on() {
+        rect.translate(Vec2::new(0.0, 1.0))
+    } else {
+        rect
+    };
+
+    ui.painter()
+        .rect_filled(rect.translate(shadow_offset), rounding, Theme::btn_shadow());
+    ui.painter().rect_filled(face_rect, rounding, bg);
+    ui.painter()
+        .rect_stroke(face_rect, rounding, Stroke::new(1.0, stroke_color));
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            face_rect.expand(2.0),
+            Rounding::same(11.0),
+            Stroke::new(1.0, Theme::SELECT_FG),
+        );
+    }
+    ui.painter().text(
+        face_rect.center(),
+        Align2::CENTER_CENTER,
+        text,
+        font_id,
+        fg,
+    );
+}
+
+fn themed_button(ui: &mut egui::Ui, text: &str, style: ButtonStyle) -> bool {
+    let font_id = FontId::new(17.0, egui::FontFamily::Name("SemiBold".into()));
     let text_width = ui.fonts(|f| {
         f.layout_no_wrap(text.to_owned(), font_id.clone(), Theme::BTN_FG)
             .size()
             .x
     });
-    let desired_size = Vec2::new(
-        ui.spacing().interact_size.x.max(text_width + 16.0),
-        30.0,
-    );
+    let desired_size = Vec2::new(ui.spacing().interact_size.x.max(text_width + 26.0), 36.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
-        let bg = if response.hovered() {
-            Theme::BTN_HOVER
-        } else {
-            Theme::BTN
-        };
-        ui.painter().rect_filled(rect, Rounding::same(3.0), bg);
-        ui.painter().text(
-            rect.center(),
-            Align2::CENTER_CENTER,
-            text,
-            font_id,
-            Theme::BTN_FG,
-        );
+        paint_toolbar_button(ui, rect, &response, text, font_id, style);
     }
     response.clicked()
 }
 
 fn themed_nav_button(ui: &mut egui::Ui, text: &str) -> bool {
-    let desired_size = Vec2::new(30.0, 30.0);
+    let desired_size = Vec2::new(36.0, 36.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
     if ui.is_rect_visible(rect) {
-        let bg = if response.hovered() {
-            Theme::BTN_HOVER
-        } else {
-            Theme::BTN
-        };
-        ui.painter()
-            .rect_filled(rect, Rounding::same(3.0), bg);
-        ui.painter().text(
-            rect.center(),
-            Align2::CENTER_CENTER,
+        paint_toolbar_button(
+            ui,
+            rect,
+            &response,
             text,
-            FontId::proportional(18.0),
-            Theme::BTN_FG,
+            FontId::proportional(19.0),
+            ButtonStyle::Subtle,
         );
     }
     response.clicked()
@@ -1155,7 +1210,7 @@ impl eframe::App for PhotoCdApp {
                     .inner_margin(Margin::symmetric(8.0, 0.0)),
             )
             .show(ctx, |ui| {
-                ui.set_min_height(60.0);
+                ui.set_min_height(66.0);
 
                 // Info row: disc title (bold) + status
                 ui.add_space(4.0);
@@ -1261,17 +1316,17 @@ impl eframe::App for PhotoCdApp {
                         let icon = "\u{1F508}";
                         let font = FontId::proportional(20.0);
                         let iw = ui.fonts(|f| f.layout_no_wrap(icon.to_owned(), font.clone(), Theme::BTN).size().x);
-                        let (rect, _) = ui.allocate_exact_size(Vec2::new(iw + 2.0, 30.0), egui::Sense::hover());
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(iw + 2.0, 36.0), egui::Sense::hover());
                         ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, font, Theme::BTN);
                     }
-                    let vol_rect = ui.allocate_space(Vec2::new(120.0, 30.0)).1;
+                    let vol_rect = ui.allocate_space(Vec2::new(120.0, 36.0)).1;
                     self.paint_volume_slider(ui, vol_rect);
                     ui.add_space(6.0);
                     {
                         let icon = "\u{1F50A}";
                         let font = FontId::proportional(20.0);
                         let iw = ui.fonts(|f| f.layout_no_wrap(icon.to_owned(), font.clone(), Theme::BTN).size().x);
-                        let (rect, _) = ui.allocate_exact_size(Vec2::new(iw + 2.0, 30.0), egui::Sense::hover());
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(iw + 2.0, 36.0), egui::Sense::hover());
                         ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, font, Theme::BTN);
                     }
 
@@ -1309,7 +1364,7 @@ impl eframe::App for PhotoCdApp {
                                 self.images.len()
                             ))
                             .color(Theme::FG_DIM)
-                            .size(14.0)
+                            .size(16.0)
                             .family(egui::FontFamily::Name("SemiBold".into())),
                         );
 
@@ -1319,7 +1374,7 @@ impl eframe::App for PhotoCdApp {
                         ui.label(
                             RichText::new("Resolution:")
                                 .color(Theme::FG_DIM)
-                                .size(14.0)
+                                .size(16.0)
                                 .family(egui::FontFamily::Name("SemiBold".into())),
                         );
                         let prev_tier = self.tier;
@@ -1330,14 +1385,14 @@ impl eframe::App for PhotoCdApp {
                         };
                         let tier_font = egui::FontFamily::Name("SemiBold".into());
                         egui::ComboBox::from_id_salt("tier_sel")
-                            .selected_text(RichText::new(self.tier.label()).size(14.0).family(tier_font.clone()))
-                            .width(70.0)
+                            .selected_text(RichText::new(self.tier.label()).size(16.0).family(tier_font.clone()))
+                            .width(86.0)
                             .show_ui(ui, |ui| {
                                 for (i, t) in ALL_TIERS.iter().enumerate() {
                                     if i > max_idx {
                                         break;
                                     }
-                                    ui.selectable_value(&mut self.tier, *t, RichText::new(t.label()).size(14.0).family(tier_font.clone()));
+                                    ui.selectable_value(&mut self.tier, *t, RichText::new(t.label()).size(16.0).family(tier_font.clone()));
                                 }
                             });
                         if self.tier != prev_tier {
@@ -1350,14 +1405,14 @@ impl eframe::App for PhotoCdApp {
                     // Always-visible buttons (right side)
                     // Library button (only when disc is loaded)
                     if self.view == View::Image {
-                        if themed_button(ui, "Library") {
+                        if themed_button(ui, "Library", ButtonStyle::Secondary) {
                             self.show_library(ctx);
                         }
                     }
 
                     // Open File
                     let mut want_open = false;
-                    if themed_button(ui, "Open File") {
+                    if themed_button(ui, "Open File", ButtonStyle::Secondary) {
                         want_open = true;
                     }
 
@@ -1367,13 +1422,13 @@ impl eframe::App for PhotoCdApp {
                     } else {
                         "Fullscreen"
                     };
-                    if themed_button(ui, fs_text) {
+                    if themed_button(ui, fs_text, ButtonStyle::Secondary) {
                         self.toggle_fullscreen(ctx);
                     }
 
                     // Save PNG (only when image loaded)
                     if self.view == View::Image && self.current_rgb.is_some() {
-                        if themed_button(ui, "Save PNG") {
+                        if themed_button(ui, "Save PNG", ButtonStyle::Secondary) {
                             self.save_png();
                         }
                     }
@@ -1381,10 +1436,10 @@ impl eframe::App for PhotoCdApp {
                     // Set-folder buttons only in Library view
                     if self.view == View::Library {
                         paint_vsep(ui);
-                        if themed_button(ui, "Set Library Folder") {
+                        if themed_button(ui, "Set Library Folder", ButtonStyle::Secondary) {
                             self.set_library_dir();
                         }
-                        if themed_button(ui, "Set PNG Save Folder") {
+                        if themed_button(ui, "Set PNG Save Folder", ButtonStyle::Secondary) {
                             self.set_save_dir();
                         }
                     }
@@ -1605,7 +1660,7 @@ impl PhotoCdApp {
 fn paint_vsep(ui: &mut egui::Ui) {
     ui.add_space(6.0);
     // Allocate full button height so egui centers it; draw only the visible portion.
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 30.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 36.0), egui::Sense::hover());
     let cy = rect.center().y;
     let half = 14.0;
     ui.painter().rect_filled(
